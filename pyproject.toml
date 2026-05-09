@@ -11,6 +11,8 @@ dependencies = [
     "asyncpg>=0.30,<0.31",
     "pgvector>=0.3,<0.5",
     "alembic>=1.14,<2.0",
+    "sentence-transformers>=3.0,<4.0",
+    "tiktoken>=0.7,<1.0",
 ]
 
 [build-system]
