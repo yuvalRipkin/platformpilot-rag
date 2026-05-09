@@ -4,9 +4,12 @@ version = "0.1.0"
 description = "RAG service for PlatformPilot"
 requires-python = ">=3.11"
 dependencies = [
-    "fastapi",
-    "uvicorn[standard]",
-    "pydantic-settings",
+    "fastapi>=0.115,<0.117",
+    "uvicorn[standard]>=0.32,<0.35",
+    "pydantic-settings>=2.6,<3.0",
+    "sqlalchemy[asyncio]>=2.0,<2.1",
+    "asyncpg>=0.30,<0.31",
+    "pgvector>=0.3,<0.5",
 ]
 
 [build-system]
@@ -15,3 +18,14 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28,<0.29",
+    "pytest>=9.0,<10.0",
+    "pytest-asyncio>=1.0,<2.0",
+    "ruff>=0.15,<0.16",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
