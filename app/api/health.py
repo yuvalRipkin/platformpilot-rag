@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,7 +17,14 @@ def health() -> dict[str, str]:
 
 
 @router.get("/ready")
-async def ready(db: AsyncSession = Depends(get_db)) -> JSONResponse:
+async def ready(
+    request: Request, db: AsyncSession = Depends(get_db)
+) -> JSONResponse:
+    if getattr(request.app.state, "embedder", None) is None:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "not_ready", "reason": "embedder not loaded"},
+        )
     try:
         await db.execute(text("SELECT 1"))
     except Exception:

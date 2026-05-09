@@ -19,10 +19,32 @@ make migrate     # apply schema migrations
 make run
 ```
 
-The API is then served at `http://localhost:8000`. Probes:
+The API is then served at `http://localhost:8000`.
 
-- `GET /health` — liveness, returns 200 unconditionally
-- `GET /ready` — readiness, returns 200 only when the database is reachable (503 otherwise)
+On startup the service loads the `all-MiniLM-L6-v2` embedder model (~90 MB) into the FastAPI app state. Expect 5–15s of startup time; `/ready` will not return 200 until both the database is reachable **and** the lifespan has finished loading the model, so readiness inherently covers "model loaded" too.
+
+### Endpoints
+
+| Method | Path      | Purpose                                                       |
+|--------|-----------|---------------------------------------------------------------|
+| GET    | `/health` | Liveness — always 200                                         |
+| GET    | `/ready`  | Readiness — 200 only when the DB is reachable (503 otherwise) |
+| POST   | `/ingest` | Ingest a markdown document: chunk, embed, persist             |
+
+Example:
+
+```bash
+curl -X POST http://localhost:8000/ingest \
+  -H 'content-type: application/json' \
+  -d '{
+    "source": "platformpilot-operator/README.md",
+    "title": "Operator README",
+    "content": "# Operator\n\nWhat the operator does..."
+  }'
+# -> {"document_id":"...","chunks_created":3,"is_replacement":false}
+```
+
+Re-ingesting the same `source` replaces its chunks (`is_replacement: true`).
 
 ### Migrations
 
