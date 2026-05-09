@@ -26,6 +26,13 @@ async def ingest(
     if not body.content.strip():
         raise HTTPException(status_code=400, detail="content must not be empty")
 
+    chunks = chunk_markdown(body.content)
+    if not chunks:
+        raise HTTPException(
+            status_code=400,
+            detail="content produced no chunks; document is too short or empty",
+        )
+
     try:
         existing = (
             await db.execute(select(Document).where(Document.source == body.source))
@@ -41,7 +48,6 @@ async def ingest(
             db.add(doc)
             await db.flush()
 
-        chunks = chunk_markdown(body.content)
         embeddings = embedder.encode([c.text for c in chunks])
         for chunk, vector in zip(chunks, embeddings, strict=True):
             db.add(

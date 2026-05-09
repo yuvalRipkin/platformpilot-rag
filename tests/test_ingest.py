@@ -1,7 +1,6 @@
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
-import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.sql.dml import Delete
 
@@ -135,6 +134,8 @@ async def test_ingest_existing_document():
             "DELETE must precede chunk INSERTs"
         )
         assert existing.title == "new"
+        assert len(embedder.calls) == 1
+        assert any("Replacement" in t for t in embedder.calls[0])
     finally:
         app.dependency_overrides.clear()
 

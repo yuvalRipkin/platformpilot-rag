@@ -28,23 +28,54 @@ def test_long_prose_splits():
 
 
 def test_overlap_present():
-    paragraph = (
-        "Alpha bravo charlie delta echo foxtrot golf hotel india juliet "
-        "kilo lima mike november oscar papa quebec romeo sierra tango. "
-    )
-    text = "\n\n".join([paragraph * 4] * 6)
-    chunks = chunk_markdown(
-        text, max_tokens=120, overlap_tokens=20, min_tokens=10
-    )
+    # Each paragraph uses a unique English vocabulary so the overlapping
+    # tail is unambiguous — a phrase that appears at the start of chunk
+    # N+1 must have come from chunk N's tail, not from elsewhere.
+    paragraphs = [
+        "The configuration system establishes baseline parameters from "
+        "environment files. Each runtime evaluates predicates against "
+        "current observations. Deployment manifests describe expected "
+        "topology and capacity. Rollouts proceed through staged groups "
+        "with health gates between steps.",
+        "Telemetry pipelines aggregate signals from edge collectors into "
+        "central indexes. Retention policies prune historical samples on "
+        "rolling windows. Alert routes branch by severity classes and "
+        "ownership labels. Dashboards summarize throughput, error rate, "
+        "and saturation per service.",
+        "Authentication flows exchange short-lived bearer tokens between "
+        "trusted services. Authorization layers enforce policy through "
+        "attribute evaluation. Audit logs capture every privileged "
+        "decision with structured context. Secrets rotate on schedules "
+        "managed by external key brokers.",
+        "Indexing strategies balance write amplification against query "
+        "latency. Compaction thresholds adjust to the observed mix of "
+        "reads and writes. Replicas elect leaders through quorum "
+        "protocols. Recovery procedures restore lost segments from "
+        "replicated journals when nodes fail.",
+        "Capacity planning forecasts saturation before user-visible "
+        "degradation occurs. Synthetic probes detect regression early in "
+        "release pipelines. Chaos experiments validate failure handling "
+        "under controlled disruption. Postmortems document timelines, "
+        "root causes, and follow-up actions.",
+    ]
+    text = "\n\n".join(paragraphs)
+    chunks = chunk_markdown(text, max_tokens=120, overlap_tokens=30, min_tokens=10)
     assert len(chunks) >= 2
+
     for prev, nxt in zip(chunks, chunks[1:], strict=False):
-        prev_tail = prev.text[-80:]
-        next_head = nxt.text[:80]
-        # Some non-trivial substring of the previous chunk's tail must appear
-        # at the start of the next chunk.
-        overlap_words = [w for w in prev_tail.split() if len(w) >= 4]
-        assert any(w in next_head for w in overlap_words[-5:]), (
-            f"no overlap between chunk {prev.index} and {nxt.index}"
+        prev_words = prev.text.split()
+        nxt_head = " ".join(nxt.text.split()[:25])
+        # Some 3-word window from late in the previous chunk must appear
+        # contiguously near the start of the next chunk.
+        candidates = prev_words[-15:]
+        found = any(
+            " ".join(candidates[i : i + 3]) in nxt_head
+            for i in range(max(0, len(candidates) - 2))
+        )
+        assert found, (
+            f"no contiguous 3-word overlap between chunk {prev.index} "
+            f"and chunk {nxt.index}; prev tail words: {candidates[-6:]}, "
+            f"next head: {nxt_head[:120]!r}"
         )
 
 
