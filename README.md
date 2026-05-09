@@ -29,4 +29,4 @@ The API is then served at `http://localhost:8000`. Probes:
 uv run pytest
 ```
 
-Tests assume `DATABASE_URL` is set in the environment (the `.env` file is loaded automatically) and that the Postgres container from `docker compose up -d` is running.
+Tests use mocked database sessions — no Postgres container required.
