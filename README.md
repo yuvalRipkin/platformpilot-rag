@@ -36,8 +36,19 @@ make migrate-down    # roll back one migration
 ### Tests
 
 ```bash
-uv run pytest                  # unit tests (fast, no DB)
-uv run pytest -m integration   # integration tests against a real Postgres
+uv run pytest   # unit tests (fast, no DB)
 ```
 
-Unit tests use mocked database sessions — no Postgres container required. Integration tests are skipped by default; they spin up a temporary `*_test` database, run migrations against it, and tear it down at the end.
+Unit tests use mocked database sessions — no Postgres container required. Integration tests are skipped by default.
+
+#### Integration tests
+
+```bash
+uv run pytest -m integration
+```
+
+Prerequisites:
+- The Postgres container from `docker compose up -d` is running
+- The configured user (`POSTGRES_USER`, default `rag`) has the `CREATEDB` privilege — the default `pgvector/pgvector:pg16` superuser created by the compose file already does
+
+Lifecycle: a fresh `ragdb_test` database (the value of `DATABASE_URL`'s database, suffixed `_test`) is dropped if present and recreated at the start of the session, has all migrations applied via Alembic, and is dropped again at the end of the session — even if migrations fail. Each test runs inside a connection-level transaction that rolls back on teardown so individual tests don't pollute each other.

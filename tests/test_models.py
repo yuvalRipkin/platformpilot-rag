@@ -53,13 +53,13 @@ def setup_test_db(test_db_url: str) -> Iterator[None]:
     asyncio.run(_admin_exec(f'DROP DATABASE IF EXISTS "{dbname}"'))
     asyncio.run(_admin_exec(f'CREATE DATABASE "{dbname}"'))
 
-    cfg = Config("alembic.ini")
-    cfg.set_main_option("sqlalchemy.url", test_db_url)
-    command.upgrade(cfg, "head")
-
-    yield
-
-    asyncio.run(_admin_exec(f'DROP DATABASE IF EXISTS "{dbname}"'))
+    try:
+        cfg = Config("alembic.ini")
+        cfg.set_main_option("sqlalchemy.url", test_db_url)
+        command.upgrade(cfg, "head")
+        yield
+    finally:
+        asyncio.run(_admin_exec(f'DROP DATABASE IF EXISTS "{dbname}"'))
 
 
 @pytest.fixture
@@ -160,11 +160,20 @@ async def test_chunks_cascade_delete(db_session: AsyncSession) -> None:
             )
         )
     await db_session.flush()
+    doc_id = doc.id
+    db_session.expunge_all()
 
-    await db_session.delete(doc)
+    fetched = (
+        await db_session.execute(
+            select(Document)
+            .where(Document.id == doc_id)
+            .options(selectinload(Document.chunks))
+        )
+    ).scalar_one()
+    await db_session.delete(fetched)
     await db_session.flush()
 
     remaining = (
-        await db_session.execute(select(Chunk).where(Chunk.document_id == doc.id))
+        await db_session.execute(select(Chunk).where(Chunk.document_id == doc_id))
     ).all()
     assert remaining == []
