@@ -28,21 +28,29 @@ def test_long_prose_splits():
 
 
 def test_overlap_present():
-    text = (
-        "The quick brown fox jumps over the lazy dog in the morning. " * 30
-        + "\n\n"
-        + "Pack my box with five dozen liquor jugs at the market today. " * 30
-    )
-    chunks = chunk_markdown(text, max_tokens=120, overlap_tokens=20, min_tokens=10)
-    assert len(chunks) >= 2
+    paragraphs = [
+        "The committee reviewed quarterly financial statements during the morning session.",
+        "Marine biologists discovered novel symbiotic relationships between coral and algae.",
+        "Constitutional scholars debate executive privilege boundaries in modern jurisprudence.",
+        "Astronomical observations revealed unexpected gravitational anomalies near the galactic center.",
+        "Renaissance painters perfected linear perspective through systematic geometric studies.",
+    ]
+    # Repeat each paragraph enough to cross chunk boundaries, but vocabulary stays distinct between paragraphs
+    text = "\n\n".join(p + " " + p for p in paragraphs * 4)
+    chunks = chunk_markdown(text, max_tokens=80, overlap_tokens=15, min_tokens=10)
+    assert len(chunks) >= 3
     for prev, nxt in zip(chunks, chunks[1:], strict=False):
-        prev_tail_words = prev.text.split()[-10:]
-        next_start = " ".join(nxt.text.split()[:30])
+        prev_tail_words = prev.text.split()[-8:]
+        next_start = " ".join(nxt.text.split()[:25])
+        # At least one bigram from the very tail of prev must appear at the head of nxt.
         found = any(
-            " ".join(prev_tail_words[i : i + 3]) in next_start
-            for i in range(len(prev_tail_words) - 2)
+            " ".join(prev_tail_words[i : i + 2]) in next_start
+            for i in range(len(prev_tail_words) - 1)
         )
-        assert found, f"no real overlap chunk {prev.index}→{nxt.index}"
+        assert found, (
+            f"no real overlap chunk {prev.index}→{nxt.index}: "
+            f"tail={prev_tail_words!r}, head={next_start!r}"
+        )
 
 
 def test_code_block_kept_whole():
