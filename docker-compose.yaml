@@ -3,15 +3,15 @@ services:
     image: pgvector/pgvector:pg16
     container_name: platformpilot-rag-db
     environment:
-      POSTGRES_USER: rag
-      POSTGRES_PASSWORD: rag_local_dev
-      POSTGRES_DB: ragdb
+      POSTGRES_USER: ${POSTGRES_USER:-rag}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rag_local_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-ragdb}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U rag -d ragdb"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-rag} -d $${POSTGRES_DB:-ragdb}"]
       interval: 5s
       timeout: 5s
       retries: 5
