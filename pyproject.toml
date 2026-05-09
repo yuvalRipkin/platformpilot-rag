@@ -10,6 +10,7 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0,<2.1",
     "asyncpg>=0.30,<0.31",
     "pgvector>=0.3,<0.5",
+    "alembic>=1.14,<2.0",
 ]
 
 [build-system]
@@ -29,3 +30,7 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+addopts = "-m 'not integration'"
+markers = [
+    "integration: tests that require a real database",
+]
