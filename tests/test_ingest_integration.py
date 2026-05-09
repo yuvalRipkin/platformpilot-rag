@@ -55,10 +55,12 @@ async def test_ingest_round_trip(
                 "title": "Round Trip",
                 "content": (
                     "# Round Trip\n\n"
-                    "This document exercises the full ingest path through "
+                    + "This document exercises the full ingest path through "
                     "the chunker, the fake embedder, and the chunks table "
-                    "with its pgvector column.\n\n"
-                    "## Section\n\nA second short section follows."
+                    "with its pgvector column. " * 6
+                    + "\n\n## Section\n\n"
+                    + "A second section with extra prose to clear the "
+                    "minimum-token threshold. " * 6
                 ),
             },
         )
@@ -87,7 +89,11 @@ async def test_ingest_replaces_chunks(
             "/ingest",
             json={
                 "source": source,
-                "content": "# Original\n\nFirst version of the content.",
+                "content": (
+                    "# Original\n\n"
+                    + "First version of the content with enough prose to "
+                    "clear the minimum-token check. " * 8
+                ),
             },
         )
         assert first.status_code == 200, first.text

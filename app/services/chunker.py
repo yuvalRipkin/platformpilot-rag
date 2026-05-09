@@ -10,6 +10,7 @@ _ENCODING = tiktoken.get_encoding("cl100k_base")
 class Chunk:
     index: int
     text: str
+    token_count: int
 
 
 @dataclass
@@ -170,4 +171,7 @@ def chunk_markdown(
         final[-2] = final[-2] + "\n\n" + final[-1]
         final.pop()
 
-    return [Chunk(index=i, text=t) for i, t in enumerate(final)]
+    return [
+        Chunk(index=i, text=t, token_count=_count_tokens(t))
+        for i, t in enumerate(final)
+    ]

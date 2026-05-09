@@ -14,6 +14,8 @@ from app.services.embedder import Embedder
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+MIN_TOTAL_TOKENS = 100
+
 
 @router.post("/ingest", response_model=IngestResponse)
 async def ingest(
@@ -28,9 +30,14 @@ async def ingest(
 
     chunks = chunk_markdown(body.content)
     if not chunks:
+        raise HTTPException(status_code=400, detail="content produced no chunks")
+    total_tokens = sum(c.token_count for c in chunks)
+    if total_tokens < MIN_TOTAL_TOKENS:
         raise HTTPException(
             status_code=400,
-            detail="content produced no chunks; document is too short or empty",
+            detail=(
+                f"content too short — minimum {MIN_TOTAL_TOKENS} tokens for retrieval"
+            ),
         )
 
     try:

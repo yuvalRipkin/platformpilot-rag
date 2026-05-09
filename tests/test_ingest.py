@@ -73,7 +73,11 @@ async def test_ingest_new_document():
         status, body = await _post(
             {
                 "source": "test/foo.md",
-                "content": "# Title\n\nA short test document with a bit of content.",
+                "content": (
+                    "# Title\n\n"
+                    + "This is a normal paragraph with several sentences. "
+                    * 12
+                ),
             }
         )
         assert status == 200, body
@@ -106,7 +110,10 @@ async def test_ingest_existing_document():
             {
                 "source": "test/foo.md",
                 "title": "new",
-                "content": "Replacement content here.",
+                "content": (
+                    "Replacement content with enough tokens to clear the "
+                    "minimum threshold. " * 12
+                ),
             }
         )
         assert status == 200, body
@@ -154,13 +161,33 @@ async def test_ingest_empty_content_400():
         app.dependency_overrides.clear()
 
 
+async def test_ingest_too_short_content_400():
+    embedder = FakeEmbedder()
+    session = _mock_session(existing_doc=None)
+    _override(session, embedder)
+    try:
+        status, body = await _post(
+            {"source": "test/foo.md", "content": "x"}
+        )
+        assert status == 400
+        assert "too short" in body["detail"].lower()
+    finally:
+        app.dependency_overrides.clear()
+
+
 async def test_ingest_embedder_failure_500():
     embedder = FakeEmbedder(fail=True)
     session = _mock_session(existing_doc=None)
     _override(session, embedder)
     try:
         status, body = await _post(
-            {"source": "test/foo.md", "content": "Some content here."}
+            {
+                "source": "test/foo.md",
+                "content": (
+                    "Content long enough to clear the minimum-token check. "
+                    * 12
+                ),
+            }
         )
         assert status == 500
         # Real exception text must NOT leak into the response.
