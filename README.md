@@ -25,15 +25,21 @@ On startup the service loads the `all-MiniLM-L6-v2` embedder model (~90 MB) into
 
 ### Endpoints
 
-| Method | Path      | Purpose                                                       |
-|--------|-----------|---------------------------------------------------------------|
-| GET    | `/health` | Liveness — always 200                                         |
-| GET    | `/ready`  | Readiness — 200 only when the DB is reachable (503 otherwise) |
-| POST   | `/ingest` | Ingest a markdown document: chunk, embed, persist             |
+| Method | Path       | Purpose                                                                                            |
+|--------|------------|----------------------------------------------------------------------------------------------------|
+| GET    | `/health`  | Liveness — always 200                                                                              |
+| GET    | `/ready`   | Readiness — 200 only when the DB is reachable AND the embedder has loaded (503 otherwise)          |
+| POST   | `/ingest`  | Ingest a markdown document: chunk, embed, persist                                                  |
+| POST   | `/search`  | Vector retrieval — returns top-K chunks for a query. No LLM call.                                  |
+| POST   | `/query`   | Full RAG path — retrieves chunks then asks Claude for a grounded, cited answer.                    |
+| GET    | `/metrics` | Prometheus metrics (request counters, retrieval/LLM histograms, FastAPI default instrumentation).  |
 
-Example:
+`/search` is the fast path (~50 ms) for debugging retrieval quality on its own. `/query` composes `/search` with the LLM and adds a `~1–2 s` Anthropic round-trip on top.
+
+Examples:
 
 ```bash
+# Ingest
 curl -X POST http://localhost:8000/ingest \
   -H 'content-type: application/json' \
   -d '{
@@ -42,9 +48,39 @@ curl -X POST http://localhost:8000/ingest \
     "content": "# Operator\n\nWhat the operator does..."
   }'
 # -> {"document_id":"...","chunks_created":3,"is_replacement":false}
+
+# Search
+curl -X POST http://localhost:8000/search \
+  -H 'content-type: application/json' \
+  -d '{"query": "how does the operator handle failures?"}'
+# -> {"query_id":"...","chunks":[{"chunk_id":"...","source":"...","similarity":0.81,"text":"..."}, ...],"latency_ms":42}
+
+# Query
+curl -X POST http://localhost:8000/query \
+  -H 'content-type: application/json' \
+  -d '{"query": "how does the operator handle failures?"}'
+# -> {"query_id":"...","answer":"The operator handles failures by ... [1]","chunks":[...],"latency_ms":1820}
+
+# Metrics (Prometheus exposition format)
+curl http://localhost:8000/metrics | grep '^rag_'
 ```
 
-Re-ingesting the same `source` replaces its chunks (`is_replacement: true`).
+Re-ingesting the same `source` replaces its chunks (`is_replacement: true`). Both `/search` and `/query` return a server-generated `query_id` — grep service logs by that id when debugging a user-reported issue.
+
+### Configuration
+
+These are read from environment (or `.env` via pydantic-settings):
+
+| Variable                | Default              | Meaning                                              |
+|-------------------------|----------------------|------------------------------------------------------|
+| `DATABASE_URL`          | _(required)_         | asyncpg DSN, e.g. `postgresql+asyncpg://...`         |
+| `ANTHROPIC_API_KEY`     | _(required)_         | Claude API key. Used by `/query`.                    |
+| `ANTHROPIC_MODEL`       | `claude-sonnet-4-6`  | Model name for `/query`.                             |
+| `TOP_K`                 | `4`                  | Default `k` for `/search` and `/query` retrieval.    |
+| `SIMILARITY_THRESHOLD`  | `0.5`                | Minimum cosine similarity for a chunk to be kept.    |
+| `MAX_CONTEXT_TOKENS`    | `8000`               | Hard cap on the LLM user prompt's token count.       |
+| `LLM_MAX_TOKENS`        | `1024`               | Anthropic `max_tokens` on each `/query` call.        |
+| `LLM_TEMPERATURE`       | `0.0`                | Deterministic by default — RAG wants reproducibility.|
 
 ### Migrations
 
