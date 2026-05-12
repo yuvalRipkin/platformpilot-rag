@@ -59,11 +59,32 @@ curl -X POST http://localhost:8000/search \
 curl -X POST http://localhost:8000/query \
   -H 'content-type: application/json' \
   -d '{"query": "how does the operator handle failures?"}'
-# -> {"query_id":"...","answer":"The operator handles failures by ... [1]","chunks":[...],"latency_ms":1820}
 
 # Metrics (Prometheus exposition format)
 curl http://localhost:8000/metrics | grep '^rag_'
 ```
+
+Example `/query` response:
+
+```json
+{
+  "query_id": "9f1b2a44-4f25-4cf8-9b1e-3f5b9c7d8e10",
+  "answer": "The operator retries transient errors with exponential backoff and surfaces permanent errors to the alert pipeline, as described in [1].",
+  "chunks": [
+    {
+      "chunk_id": "0514d0f3-8e93-4e59-903e-b39cfd3d32ea",
+      "document_id": "a0537927-7827-463a-8276-134b80fd2e92",
+      "source": "platformpilot-operator/README.md",
+      "chunk_index": 0,
+      "text": "The operator handles failures by retrying transient errors with exponential backoff. Permanent errors are surfaced to the alert pipeline...",
+      "similarity": 0.58
+    }
+  ],
+  "latency_ms": 1820
+}
+```
+
+If retrieval finds no chunks above the similarity threshold, `answer` is the fixed fallback `"I don't have that information in the indexed documents."` and `chunks` is `[]` — no LLM call is made.
 
 Re-ingesting the same `source` replaces its chunks (`is_replacement: true`). Both `/search` and `/query` return a server-generated `query_id` — grep service logs by that id when debugging a user-reported issue.
 

@@ -13,9 +13,7 @@ from app.services.retriever import RetrievedChunk, Retriever
 
 _ENCODING = tiktoken.get_encoding("cl100k_base")
 
-_FALLBACK_ANSWER = (
-    "I don't have information about that in the indexed documents."
-)
+_FALLBACK_ANSWER = "I don't have that information in the indexed documents."
 
 _SYSTEM_PROMPT = """\
 You are a documentation assistant for the PlatformPilot project.

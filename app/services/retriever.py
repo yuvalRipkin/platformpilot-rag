@@ -1,3 +1,4 @@
+import math
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -39,7 +40,10 @@ _RETRIEVE_SQL = text(
 
 
 def _vector_literal(vector: list[float]) -> str:
-    return "[" + ",".join(repr(float(x)) for x in vector) + "]"
+    for x in vector:
+        if not math.isfinite(x):
+            raise ValueError(f"vector contains non-finite value: {x}")
+    return "[" + ",".join(f"{float(x):.8f}" for x in vector) + "]"
 
 
 class Retriever:
