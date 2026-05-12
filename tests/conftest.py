@@ -1,18 +1,26 @@
-import asyncio
-from collections.abc import AsyncIterator, Iterator
+import os
 
-import asyncpg
-import pytest
-from sqlalchemy.engine.url import make_url
-from sqlalchemy.ext.asyncio import (
+# Settings() requires ANTHROPIC_API_KEY at import time. Provide a placeholder
+# that won't reach the real Anthropic API — every test that touches the LLM
+# path injects a fake LLMClient via app.dependency_overrides. setdefault
+# preserves an explicit ANTHROPIC_API_KEY=... env if the operator sets one.
+os.environ.setdefault("ANTHROPIC_API_KEY", "sk-ant-test-placeholder")
+
+import asyncio  # noqa: E402
+from collections.abc import AsyncIterator, Iterator  # noqa: E402
+
+import asyncpg  # noqa: E402
+import pytest  # noqa: E402
+from sqlalchemy.engine.url import make_url  # noqa: E402
+from sqlalchemy.ext.asyncio import (  # noqa: E402
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
 
-from alembic import command
-from alembic.config import Config
-from app.core.config import settings
+from alembic import command  # noqa: E402
+from alembic.config import Config  # noqa: E402
+from app.core.config import settings  # noqa: E402
 
 
 def _parsed_url():
