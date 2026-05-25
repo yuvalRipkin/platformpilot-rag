@@ -23,7 +23,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("Embedder ready")
     app.state.retriever = Retriever(app.state.embedder)
     app.state.llm = AnthropicClient(
-        settings.anthropic_api_key, settings.anthropic_model
+        settings.anthropic_api_key,
+        settings.anthropic_model,
+        settings.anthropic_timeout_seconds,
     )
     app.state.answer_generator = AnswerGenerator(
         app.state.retriever, app.state.llm, settings
