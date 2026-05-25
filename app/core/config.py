@@ -11,6 +11,7 @@ class Settings(BaseSettings):
 
     anthropic_api_key: str
     anthropic_model: str = "claude-sonnet-4-6"
+    anthropic_timeout_seconds: float = 30.0
     max_context_tokens: int = 8000
     llm_max_tokens: int = 1024
     llm_temperature: float = 0.0
