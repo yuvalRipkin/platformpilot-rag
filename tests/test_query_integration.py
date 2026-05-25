@@ -100,6 +100,8 @@ async def test_query_round_trip(
     assert "test/known.md" in sources
 
     # The echoing LLM returns the user prompt; assert the assembled context
-    # included the source attribution and citation marker.
-    assert "test/known.md" in body["answer"]
-    assert "[1]" in body["answer"]
+    # wrapped each chunk in a <context_chunk> tag with the source carried as
+    # an attribute and the citation index as the id attribute.
+    assert "<context_chunk " in body["answer"]
+    assert 'source="test/known.md"' in body["answer"]
+    assert 'id="1"' in body["answer"]
