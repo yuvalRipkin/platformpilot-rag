@@ -1,3 +1,4 @@
+import asyncio
 import math
 from dataclasses import dataclass
 from uuid import UUID
@@ -57,7 +58,11 @@ class Retriever:
         k: int,
         threshold: float,
     ) -> list[RetrievedChunk]:
-        vector = self.embedder.encode([query])[0]
+        # Embedder.encode() is synchronous and CPU-bound (torch inference).
+        # Calling it inline would block the event loop for the whole process
+        # and serialize concurrent requests, so it runs on a worker thread.
+        vectors = await asyncio.to_thread(self.embedder.encode, [query])
+        vector = vectors[0]
         result = await db.execute(
             _RETRIEVE_SQL,
             {"vec": _vector_literal(vector), "k": k},
