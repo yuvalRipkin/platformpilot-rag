@@ -98,7 +98,7 @@ These are read from environment (or `.env` via pydantic-settings):
 | `ANTHROPIC_API_KEY`     | _(required)_         | Claude API key. Used by `/query`.                    |
 | `ANTHROPIC_MODEL`       | `claude-sonnet-4-6`  | Model name for `/query`.                             |
 | `TOP_K`                 | `4`                  | Default `k` for `/search` and `/query` retrieval.    |
-| `EMBEDDER_MAX_WORKERS`  | _(derived)_          | Threads serving embedder inference. Derived as `clamp(cpus - 1, 1, 8)`, where `cpus` is the lower of the cgroup CPU quota (`limits.cpu`) and the scheduler affinity mask. The resolved value and which source won are logged at startup as `embed_workers` / `workers_source`. |
+| `EMBEDDER_MAX_WORKERS`  | _(derived)_          | Threads serving embedder inference. Derived as `clamp(cpus, 1, 8)`, where `cpus` is the lower of the cgroup CPU quota (`limits.cpu`) and the scheduler affinity mask. The resolved value and which source won are logged at startup as `embed_workers` / `workers_source`. |
 | `EMBEDDER_TORCH_THREADS`| `1`                  | torch intra-op threads per inference. Keep at 1 so `EMBEDDER_MAX_WORKERS` bounds CPU use truthfully. |
 | `SIMILARITY_THRESHOLD`  | `0.5`                | Minimum cosine similarity for a chunk to be kept.    |
 | `MAX_CONTEXT_TOKENS`    | `8000`               | Hard cap on the LLM user prompt's token count.       |
@@ -127,6 +127,8 @@ Measured through `POST /search` with a fake embedder calibrated to ~50 ms of sin
 | `--cpus=4` | **bounded pool + pinned** | **0.954s** | 2.9 | **1.11x** | **27ms** |
 
 "CPU used vs. minimum" is measured core-seconds over the 2.5–2.7 core-seconds the same work costs run serially. The bounded pool lands within ~10% of that floor; the unbounded configurations burn roughly twice it and are still slower in wall time, because the extra threads spend the quota on context switching, cache thrash and CFS throttle stalls rather than on inference.
+
+The pool runs one worker per available core. An earlier version reserved one for the event loop; that reservation was measured rather than assumed, and it lost — 19–49% less throughput for identical loop lag (37ms vs 37ms at `--cpus=2`, 35ms vs 36ms at `--cpus=4`, both at N=50), so it was removed. Reproduce with `--cell cpu:bounded --workers N`.
 
 The tradeoff is real and goes the other way at low concurrency. Pinning torch to one intra-op thread means a single request no longer uses every core: at `--cpus=4`, N=1 costs **0.019s before and 0.051s after** (2.7x worse). At `--cpus=2` there is no such penalty (0.081s → 0.051s) — eight torch threads on two cores of quota was already a net loss. We accept worse latency on an idle service in exchange for bounded, predictable behaviour under load, which is the regime that matters when several pods share a node.
 

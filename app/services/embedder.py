@@ -125,11 +125,16 @@ def resolve_max_workers(configured: int | None, budget: CpuBudget | None = None)
         if configured < 1:
             raise ValueError("embedder max_workers must be >= 1")
         return configured
-    # Leave a core for the event loop. /query holds a 1-2s Anthropic
-    # round-trip open per request, and the loop thread has to stay schedulable
-    # to drive those sockets while embeds run.
+    # One worker per available core. An earlier version reserved a core for
+    # the event loop, on the theory that it must stay schedulable to drive
+    # /query's 1-2s Anthropic round-trips while embeds run. Measured, that
+    # reservation cost 19-49% throughput and bought no responsiveness: max
+    # loop lag was identical with and without it (37ms vs 37ms at --cpus=2,
+    # 35ms vs 36ms at --cpus=4, N=50). The loop needs a few hundred
+    # microseconds per wakeup, not a core — the scheduler interleaves it
+    # fine. See README "Concurrency".
     cpus = (budget or cpu_budget()).cpus
-    return max(1, min(cpus - 1, MAX_DERIVED_WORKERS))
+    return max(1, min(cpus, MAX_DERIVED_WORKERS))
 
 
 _executor: ThreadPoolExecutor | None = None
