@@ -540,6 +540,18 @@ def main() -> None:
 
     if args.cell:
         fake_name, config_name = args.cell.split(":")
+        # The matrix driver passes a calibration down so every cell measures
+        # identical work; a cell run directly has to calibrate for itself.
+        calibration = (
+            Calibration(args.dim, args.repeats, 0.0, 0.0)
+            if args.dim is not None
+            else calibrate_cpu_embedder()
+        )
+        print(
+            f"  fake: dim={calibration.dim} x{calibration.repeats} "
+            f"= {calibration.encode_ms:.1f}ms single-threaded",
+            file=sys.stderr,
+        )
         cells = asyncio.run(
             run_cell(
                 fake_name,
@@ -547,7 +559,7 @@ def main() -> None:
                 concurrencies,
                 args.reps,
                 args.warmups,
-                Calibration(args.dim, args.repeats, 0.0, 0.0),
+                calibration,
                 args.workers,
             )
         )
