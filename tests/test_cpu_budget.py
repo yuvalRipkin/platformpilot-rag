@@ -118,9 +118,9 @@ def _budget(cpus: int) -> CpuBudget:
 @pytest.mark.parametrize(
     ("cpus", "expected"),
     [
-        (1, 1),  # single-core pod: never zero workers
-        (2, 1),
-        (4, 3),  # one core reserved for the event loop
+        (1, 1),  # single-core pod
+        (2, 2),  # one worker per core; reserving one was measured and lost
+        (4, 4),
         (64, MAX_DERIVED_WORKERS),  # clamped
     ],
 )
