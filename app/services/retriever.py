@@ -1,4 +1,3 @@
-import asyncio
 import math
 from dataclasses import dataclass
 from uuid import UUID
@@ -6,7 +5,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.embedder import Embedder
+from app.services.embedder import Embedder, encode_async
 
 
 @dataclass
@@ -60,8 +59,9 @@ class Retriever:
     ) -> list[RetrievedChunk]:
         # Embedder.encode() is synchronous and CPU-bound (torch inference).
         # Calling it inline would block the event loop for the whole process
-        # and serialize concurrent requests, so it runs on a worker thread.
-        vectors = await asyncio.to_thread(self.embedder.encode, [query])
+        # and serialize concurrent requests; encode_async runs it on the
+        # bounded embedding pool.
+        vectors = await encode_async(self.embedder, [query])
         vector = vectors[0]
         result = await db.execute(
             _RETRIEVE_SQL,

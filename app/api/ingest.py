@@ -1,4 +1,3 @@
-import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -10,7 +9,7 @@ from app.api.schemas import IngestRequest, IngestResponse
 from app.db.models import Chunk, Document
 from app.db.session import get_db
 from app.services.chunker import chunk_markdown
-from app.services.embedder import Embedder
+from app.services.embedder import Embedder, encode_async
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -57,8 +56,9 @@ async def ingest(
             await db.flush()
 
         # Blocking CPU-bound inference — keep it off the event loop so a large
-        # ingest does not stall every other in-flight request. See Retriever.
-        embeddings = await asyncio.to_thread(embedder.encode, [c.text for c in chunks])
+        # ingest does not stall every other in-flight request, and on the
+        # bounded pool so it cannot monopolize the CPU either.
+        embeddings = await encode_async(embedder, [c.text for c in chunks])
         for chunk, vector in zip(chunks, embeddings, strict=True):
             db.add(
                 Chunk(
