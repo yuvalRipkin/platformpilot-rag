@@ -98,7 +98,7 @@ These are read from environment (or `.env` via pydantic-settings):
 | `ANTHROPIC_API_KEY`     | _(required)_         | Claude API key. Used by `/query`.                    |
 | `ANTHROPIC_MODEL`       | `claude-sonnet-4-6`  | Model name for `/query`.                             |
 | `TOP_K`                 | `4`                  | Default `k` for `/search` and `/query` retrieval.    |
-| `EMBEDDER_MAX_WORKERS`  | _(derived)_          | Threads serving embedder inference. Default is `min(cpus - 1, 8)`. **Set explicitly in a container** — `cpu_count()` reports the node's cores, not the pod's CPU limit. |
+| `EMBEDDER_MAX_WORKERS`  | _(derived)_          | Threads serving embedder inference. Derived as `clamp(cpus - 1, 1, 8)`, where `cpus` is the lower of the cgroup CPU quota (`limits.cpu`) and the scheduler affinity mask. The resolved value and which source won are logged at startup as `embed_workers` / `workers_source`. |
 | `EMBEDDER_TORCH_THREADS`| `1`                  | torch intra-op threads per inference. Keep at 1 so `EMBEDDER_MAX_WORKERS` bounds CPU use truthfully. |
 | `SIMILARITY_THRESHOLD`  | `0.5`                | Minimum cosine similarity for a chunk to be kept.    |
 | `MAX_CONTEXT_TOKENS`    | `8000`               | Hard cap on the LLM user prompt's token count.       |

@@ -3,6 +3,8 @@ import logging
 import os
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from pathlib import Path
 
 from app.core.config import settings
 
@@ -53,13 +55,25 @@ class SentenceTransformerEmbedder(Embedder):
         return vectors.tolist()
 
 
-def _available_cpus() -> int:
-    """CPUs this process may use.
+CGROUP_ROOT = Path("/sys/fs/cgroup")
 
-    None of these read a cgroup CPU *quota*: under a Kubernetes CPU limit this
-    still reports the node's core count. That is why the derived default is
-    clamped and why EMBEDDER_MAX_WORKERS should be set explicitly in a
-    deployment to match the pod's CPU limit.
+
+@dataclass(frozen=True)
+class CpuBudget:
+    """How much CPU this process may actually use, and where we learned it."""
+
+    cpus: int
+    source: str  # "cgroup" | "affinity"
+    affinity_cpus: int
+    quota_cpus: float | None
+
+
+def affinity_cpus() -> int:
+    """CPUs this process is *allowed to run on*.
+
+    This is the scheduler's affinity mask. It does NOT observe a cgroup CPU
+    quota: a container limited to one core still has every core in its mask
+    and is throttled at CFS period boundaries instead.
     """
     process_cpu_count = getattr(os, "process_cpu_count", None)  # Python 3.13+
     if process_cpu_count is not None:
@@ -70,7 +84,45 @@ def _available_cpus() -> int:
         return os.cpu_count() or 1
 
 
-def resolve_max_workers(configured: int | None) -> int:
+def cgroup_quota_cpus(root: Path = CGROUP_ROOT) -> float | None:
+    """Cores permitted by the cgroup CFS quota, or None if unlimited/absent.
+
+    cgroup v2 `cpu.max` holds "<quota> <period>" in microseconds, where quota
+    is the literal "max" when unthrottled: `--cpus=1.5` reads "150000 100000".
+    cgroup v1 splits the same numbers across cpu.cfs_quota_us (-1 when
+    unlimited) and cpu.cfs_period_us.
+    """
+    try:
+        fields = (root / "cpu.max").read_text().split()
+        if fields[0] != "max":
+            quota, period = float(fields[0]), float(fields[1])
+            if quota > 0 and period > 0:
+                return quota / period
+        return None
+    except (OSError, ValueError, IndexError):
+        pass
+
+    try:
+        quota = float((root / "cpu" / "cpu.cfs_quota_us").read_text().strip())
+        period = float((root / "cpu" / "cpu.cfs_period_us").read_text().strip())
+        if quota > 0 and period > 0:
+            return quota / period
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def cpu_budget(root: Path = CGROUP_ROOT) -> CpuBudget:
+    affinity = affinity_cpus()
+    quota = cgroup_quota_cpus(root)
+    if quota is not None and quota < affinity:
+        # Fractional quotas floor to whole workers; a 1.5-core pod gets one
+        # embed at a time rather than two that throttle each other.
+        return CpuBudget(max(1, int(quota)), "cgroup", affinity, quota)
+    return CpuBudget(affinity, "affinity", affinity, quota)
+
+
+def resolve_max_workers(configured: int | None, budget: CpuBudget | None = None) -> int:
     if configured is not None:
         if configured < 1:
             raise ValueError("embedder max_workers must be >= 1")
@@ -78,7 +130,8 @@ def resolve_max_workers(configured: int | None) -> int:
     # Leave a core for the event loop. /query holds a 1-2s Anthropic
     # round-trip open per request, and the loop thread has to stay schedulable
     # to drive those sockets while embeds run.
-    return max(1, min(_available_cpus() - 1, MAX_DERIVED_WORKERS))
+    cpus = (budget or cpu_budget()).cpus
+    return max(1, min(cpus - 1, MAX_DERIVED_WORKERS))
 
 
 _executor: ThreadPoolExecutor | None = None
@@ -88,14 +141,21 @@ def init_embed_executor(max_workers: int | None = None) -> ThreadPoolExecutor:
     """Create (or replace) the process-wide embedding thread pool."""
     global _executor
     shutdown_embed_executor()
-    workers = resolve_max_workers(
+    configured = (
         max_workers if max_workers is not None else settings.embedder_max_workers
     )
+    budget = cpu_budget()
+    workers = resolve_max_workers(configured, budget)
     _executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="embed")
     logger.info(
         "Embedding pool ready",
         extra={
             "embed_workers": workers,
+            # Which input decided the bound. "affinity" inside a container
+            # means no CPU limit was set on the pod — worth noticing.
+            "workers_source": "config" if configured is not None else budget.source,
+            "affinity_cpus": budget.affinity_cpus,
+            "cgroup_quota_cpus": budget.quota_cpus,
             "torch_threads": settings.embedder_torch_threads,
         },
     )
