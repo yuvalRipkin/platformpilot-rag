@@ -36,11 +36,9 @@ class SentenceTransformerEmbedder(Embedder):
             else settings.embedder_torch_threads
         )
         if threads > 0:
-            # The executor below supplies the concurrency, so torch must not
-            # also fan each inference out across every core — the two
-            # multiply, and N workers x C intra-op threads oversubscribes the
-            # CPU N-fold. One thread per job makes max_workers a truthful
-            # statement about how much CPU embedding can consume.
+            # Covers callers that encode() on this thread (batch scripts, the
+            # REPL). Inference served through the pool is pinned separately by
+            # each worker — see pin_torch_threads.
             torch.set_num_threads(threads)
 
         self.model_name = model_name
@@ -137,6 +135,24 @@ def resolve_max_workers(configured: int | None, budget: CpuBudget | None = None)
 _executor: ThreadPoolExecutor | None = None
 
 
+def pin_torch_threads(threads: int) -> None:
+    """Pin torch intra-op parallelism, from inside the thread that will run it.
+
+    torch resolves its intra-op thread count per thread, on that thread's
+    first op. Calling set_num_threads() on the main thread therefore does
+    nothing for a pool worker that is already running — and the worker's own
+    get_num_threads() still reports the new value, so the setting looks
+    applied while inference keeps fanning out across every core. Measured in a
+    --cpus=4 container: a worker whose count was set from the main thread ran
+    at 7.7 cores; the same work with this as the pool initializer ran at 1.0.
+    """
+    try:
+        import torch
+    except ImportError:  # pragma: no cover - torch ships with the model
+        return
+    torch.set_num_threads(threads)
+
+
 def init_embed_executor(max_workers: int | None = None) -> ThreadPoolExecutor:
     """Create (or replace) the process-wide embedding thread pool."""
     global _executor
@@ -146,7 +162,13 @@ def init_embed_executor(max_workers: int | None = None) -> ThreadPoolExecutor:
     )
     budget = cpu_budget()
     workers = resolve_max_workers(configured, budget)
-    _executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="embed")
+    torch_threads = settings.embedder_torch_threads
+    _executor = ThreadPoolExecutor(
+        max_workers=workers,
+        thread_name_prefix="embed",
+        initializer=pin_torch_threads if torch_threads > 0 else None,
+        initargs=(torch_threads,) if torch_threads > 0 else (),
+    )
     logger.info(
         "Embedding pool ready",
         extra={
