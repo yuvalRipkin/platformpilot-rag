@@ -34,7 +34,8 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-addopts = "-m 'not integration'"
+addopts = "-m 'not integration and not concurrency'"
 markers = [
     "integration: tests that require a real database",
+    "concurrency: wall-clock timing tests; slow, and unreliable on a loaded machine",
 ]

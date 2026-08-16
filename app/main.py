@@ -8,7 +8,11 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from app.api import health, ingest, query, search
 from app.core.config import settings
 from app.services.answer_generator import AnswerGenerator
-from app.services.embedder import SentenceTransformerEmbedder
+from app.services.embedder import (
+    SentenceTransformerEmbedder,
+    init_embed_executor,
+    shutdown_embed_executor,
+)
 from app.services.llm_client import AnthropicClient
 from app.services.retriever import Retriever
 
@@ -20,6 +24,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("Loading embedder model")
     app.state.embedder = SentenceTransformerEmbedder()
+    init_embed_executor()
     logger.info("Embedder ready")
     app.state.retriever = Retriever(app.state.embedder)
     app.state.llm = AnthropicClient(
@@ -33,6 +38,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield
     from app.db.session import engine
 
+    shutdown_embed_executor()
     await engine.dispose()
 
 

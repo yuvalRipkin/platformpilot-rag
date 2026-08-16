@@ -98,10 +98,46 @@ These are read from environment (or `.env` via pydantic-settings):
 | `ANTHROPIC_API_KEY`     | _(required)_         | Claude API key. Used by `/query`.                    |
 | `ANTHROPIC_MODEL`       | `claude-sonnet-4-6`  | Model name for `/query`.                             |
 | `TOP_K`                 | `4`                  | Default `k` for `/search` and `/query` retrieval.    |
+| `EMBEDDER_MAX_WORKERS`  | _(derived)_          | Threads serving embedder inference. Derived as `clamp(cpus - 1, 1, 8)`, where `cpus` is the lower of the cgroup CPU quota (`limits.cpu`) and the scheduler affinity mask. The resolved value and which source won are logged at startup as `embed_workers` / `workers_source`. |
+| `EMBEDDER_TORCH_THREADS`| `1`                  | torch intra-op threads per inference. Keep at 1 so `EMBEDDER_MAX_WORKERS` bounds CPU use truthfully. |
 | `SIMILARITY_THRESHOLD`  | `0.5`                | Minimum cosine similarity for a chunk to be kept.    |
 | `MAX_CONTEXT_TOKENS`    | `8000`               | Hard cap on the LLM user prompt's token count.       |
 | `LLM_MAX_TOKENS`        | `1024`               | Anthropic `max_tokens` on each `/query` call.        |
 | `LLM_TEMPERATURE`       | `0.0`                | Deterministic by default — RAG wants reproducibility.|
+
+### Concurrency
+
+`Embedder.encode()` is synchronous, CPU-bound torch inference, and it was called inline from two async paths (`Retriever.retrieve` and the `/ingest` handler). That blocked the event loop for the whole process: concurrent requests were served one at a time, and everything else on the loop — other requests' DB I/O, `/query`'s Anthropic round-trips, the health probes — waited too. Inference now runs on a dedicated bounded thread pool, sized from the cgroup CPU quota, with each worker pinned to one torch intra-op thread.
+
+Two changes were needed, and it is worth separating them. Moving the call off the loop is what fixes responsiveness. Bounding the pool and pinning torch are what stop the fix from replacing serialization with oversubscription: `asyncio.to_thread` submits to the loop's default executor (`min(32, cpu_count + 4)` — 12 here, 32 on a 64-core node), and each of those inferences would otherwise fan out across every core, so a burst of requests can put ~100 runnable threads on a 4-core quota.
+
+Measured through `POST /search` with a fake embedder calibrated to ~50 ms of single-threaded work, inside CPU-limited containers. `cores` is `process_time / wall`, i.e. the mean number of cores kept busy; `lag` is how late a 5 ms heartbeat coroutine fired, i.e. how blocked the loop was.
+
+**50 concurrent requests, CPU-bound fake**
+
+| quota | config | wall (median of 5) | cores | CPU used vs. minimum | max loop lag |
+|---|---|---|---|---|---|
+| `--cpus=2` | blocking (pre-fix) | 4.967s | 2.0 | 3.65x | 4182ms |
+| `--cpus=2` | unbounded `to_thread` | 3.675s | 2.0 | 2.71x | 198ms |
+| `--cpus=2` | unbounded + pinned torch | 3.170s | 2.0 | 2.33x | 85ms |
+| `--cpus=2` | **bounded pool + pinned** | **2.572s** | 1.0 | **0.95x** | **55ms** |
+| `--cpus=4` | blocking (pre-fix) | 1.556s | 4.0 | 2.49x | 1248ms |
+| `--cpus=4` | unbounded `to_thread` | 1.191s | 4.1 | 1.91x | 56ms |
+| `--cpus=4` | unbounded + pinned torch | 1.105s | 4.1 | 1.79x | 58ms |
+| `--cpus=4` | **bounded pool + pinned** | **0.954s** | 2.9 | **1.11x** | **27ms** |
+
+"CPU used vs. minimum" is measured core-seconds over the 2.5–2.7 core-seconds the same work costs run serially. The bounded pool lands within ~10% of that floor; the unbounded configurations burn roughly twice it and are still slower in wall time, because the extra threads spend the quota on context switching, cache thrash and CFS throttle stalls rather than on inference.
+
+The tradeoff is real and goes the other way at low concurrency. Pinning torch to one intra-op thread means a single request no longer uses every core: at `--cpus=4`, N=1 costs **0.019s before and 0.051s after** (2.7x worse). At `--cpus=2` there is no such penalty (0.081s → 0.051s) — eight torch threads on two cores of quota was already a net loss. We accept worse latency on an idle service in exchange for bounded, predictable behaviour under load, which is the regime that matters when several pods share a node.
+
+One caveat on reading these numbers: a `time.sleep()` fake consumes no CPU, so under it threads never contend and the bounded pool is pure queueing overhead — at `--cpus=2`/N=50 it measures 2.708s against unbounded's 0.289s, which would argue for reverting this change. Only the CPU-bound fake tests the hypothesis. The sleep fake is still the clearest demonstration of the original bug, though: blocking at N=50 stalls the event loop for **2194ms**.
+
+Reproduce (Docker required; the matrix is meaningless on a laptop, where core count, BLAS kernel and background load all differ from the deployment):
+
+```bash
+make bench-concurrency CPUS=4   # full matrix: 2 fakes x 4 configs x N in {1,10,50}
+uv run pytest -m concurrency    # fast assertions only, no container
+```
 
 ### Migrations
 

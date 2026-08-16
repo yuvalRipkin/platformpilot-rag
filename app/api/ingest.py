@@ -9,7 +9,7 @@ from app.api.schemas import IngestRequest, IngestResponse
 from app.db.models import Chunk, Document
 from app.db.session import get_db
 from app.services.chunker import chunk_markdown
-from app.services.embedder import Embedder
+from app.services.embedder import Embedder, encode_async
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -55,7 +55,10 @@ async def ingest(
             db.add(doc)
             await db.flush()
 
-        embeddings = embedder.encode([c.text for c in chunks])
+        # Blocking CPU-bound inference — keep it off the event loop so a large
+        # ingest does not stall every other in-flight request, and on the
+        # bounded pool so it cannot monopolize the CPU either.
+        embeddings = await encode_async(embedder, [c.text for c in chunks])
         for chunk, vector in zip(chunks, embeddings, strict=True):
             db.add(
                 Chunk(
